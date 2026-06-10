@@ -476,11 +476,11 @@ elif pagina == "📜 Histórico":
         if ocorrencias_abertas.empty:
             st.success("Todas as ocorrências filtradas já estão finalizadas! 🎉")
         else:
-            # Monta uma lista de opções legível para o usuário escolher
+            # Monta uma lista de opções legível convertendo tudo para TEXTO (.astype(str)) para evitar erros
             opcoes_finalizar = (
-                ocorrencias_abertas["item_nome"] + " | " + 
-                ocorrencias_abertas["tipo_ocorrencia"] + " | Pat:" + 
-                ocorrencias_abertas["item_patrimonio"].fillna("—") + " | Linha: " + 
+                ocorrencias_abertas["item_nome"].astype(str) + " | " + 
+                ocorrencias_abertas["tipo_ocorrencia"].astype(str) + " | Pat:" + 
+                ocorrencias_abertas["item_patrimonio"].fillna("—").astype(str) + " | Linha: " + 
                 ocorrencias_abertas["_row"].astype(str)
             )
             
