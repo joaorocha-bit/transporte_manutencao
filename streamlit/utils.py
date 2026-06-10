@@ -20,7 +20,7 @@ ALERTA_VIDA_UTIL_ANOS    = 1
 # ── MAPEAMENTO DE COLUNAS ─────────────────────────────────────────────────────
 # Ajuste as chaves abaixo para os nomes EXATOS das colunas na sua planilha.
 MAPA_COLUNAS = {
-    "nome":              "F",                   # nome do item
+    "nome":              "EQUIPAMENTO",                   # nome do item
     "tipo":              "Tipo",                   # Maca / Cadeira de Rodas
     "local":             "LOCALIZAÇÃO DO EQUIPAMENTO",
     "numero_serie":      "Nº DE SÉRIE",
