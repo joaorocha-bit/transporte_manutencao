@@ -18,10 +18,9 @@ ALERTA_MANUTENCAO_DIAS   = 60
 ALERTA_VIDA_UTIL_ANOS    = 1
 
 # ── MAPEAMENTO DE COLUNAS ─────────────────────────────────────────────────────
-# Ajuste as chaves abaixo para os nomes EXATOS das colunas na sua planilha.
 MAPA_COLUNAS = {
     "nome":              "EQUIPAMENTO",                   # nome do item
-    "tipo":              "Tipo",                   # Maca / Cadeira de Rodas
+    "tipo":              "Tipo",                          # Maca / Cadeira de Rodas
     "local":             "LOCALIZAÇÃO DO EQUIPAMENTO",
     "numero_serie":      "Nº DE SÉRIE",
     "patrimonio_antigo": "Nº DE PATRIMÔNIO ANTIGO",
@@ -35,8 +34,15 @@ MAPA_COLUNAS = {
 }
 
 # Nome da aba principal e da aba de histórico
-ABA_PRINCIPAL = "Consolidado"        # altere se necessário
-ABA_HISTORICO = "historico"        # será criada automaticamente se não existir
+ABA_PRINCIPAL = "Consolidado"
+ABA_HISTORICO = "historico"
+
+# Definição do cabeçalho do histórico (Adicionado as colunas de controle de encerramento)
+CABECALHO_HISTORICO = [
+    "timestamp", "item_nome", "item_patrimonio", "tipo_ocorrencia",
+    "data_ocorrencia", "responsavel", "observacoes", "novo_local", 
+    "necessidade", "status_ocorrencia", "data_finalizacao"
+]
 
 
 # ── CARREGA DADOS ──────────────────────────────────────────────────────────────
@@ -75,11 +81,17 @@ def carregar_dados(_gc, spreadsheet_id: str):
         ws_hist = sh.worksheet(ABA_HISTORICO)
         hist_records = ws_hist.get_all_records()
         df_hist = pd.DataFrame(hist_records)
+        
+        # Garante que as novas colunas de status existam mesmo se a aba antiga não as tiver
+        for col in ["status_ocorrencia", "data_finalizacao"]:
+            if col not in df_hist.columns:
+                df_hist[col] = ""
+                
+        # IMPORTANTE: Mapeia a linha física da aba de histórico para sabermos qual atualizar depois
+        df_hist["_row"] = range(2, len(df_hist) + 2)
+        
     except Exception:
-        df_hist = pd.DataFrame(columns=[
-            "timestamp","item_nome","item_patrimonio","tipo_ocorrencia",
-            "data_ocorrencia","responsavel","observacoes","novo_local","necessidade"
-        ])
+        df_hist = pd.DataFrame(columns=CABECALHO_HISTORICO + ["_row"])
 
     return df, df_hist
 
@@ -88,16 +100,46 @@ def carregar_dados(_gc, spreadsheet_id: str):
 def salvar_historico(_gc, spreadsheet_id: str, registro: dict):
     """Appenda uma linha na aba de histórico. Cria a aba se não existir."""
     sh = _gc.open_by_key(spreadsheet_id)
-    cabecalho = ["timestamp","item_nome","item_patrimonio","tipo_ocorrencia",
-                 "data_ocorrencia","responsavel","observacoes","novo_local","necessidade"]
     try:
         ws = sh.worksheet(ABA_HISTORICO)
     except Exception:
-        ws = sh.add_worksheet(title=ABA_HISTORICO, rows=1000, cols=len(cabecalho))
-        ws.append_row(cabecalho)
+        ws = sh.add_worksheet(title=ABA_HISTORICO, rows=1000, cols=len(CABECALHO_HISTORICO))
+        ws.append_row(CABECALHO_HISTORICO)
 
-    linha = [registro.get(c, "") for c in cabecalho]
+    # Força que qualquer nova ocorrência nasça com o status de "Aberta"
+    if "status_ocorrencia" not in registro:
+        registro["status_ocorrencia"] = "Aberta"
+
+    linha = [registro.get(c, "") for c in CABECALHO_HISTORICO]
     ws.append_row(linha)
+
+
+# ── ATUALIZA OCORRÊNCIA NO HISTÓRICO (NOVA FUNÇÃO) ─────────────────────────────
+def atualizar_historico(_gc, spreadsheet_id: str, row_index: int, updates: dict):
+    """
+    Atualiza colunas específicas de uma linha física na aba 'historico'.
+    `updates` deve ser um dicionário mapeando o nome interno ao novo valor.
+    Exemplo: {"status_ocorrencia": "Finalizada", "data_finalizacao": "2026-06-10"}
+    """
+    sh = _gc.open_by_key(spreadsheet_id)
+    try:
+        ws = sh.worksheet(ABA_HISTORICO)
+    except Exception:
+        return # Caso a aba não exista, não faz nada
+
+    cabecalho = [c.strip() for c in ws.row_values(1)]
+
+    for campo_coluna, valor in updates.items():
+        try:
+            col_idx = cabecalho.index(campo_coluna) + 1
+            
+            # Formatação de datas seguras
+            if isinstance(valor, (datetime, date)):
+                valor = valor.strftime("%d/%m/%Y")
+                
+            ws.update_cell(row_index, col_idx, valor)
+        except ValueError:
+            continue # Coluna não existe no cabeçalho do Sheets, ignora
 
 
 # ── ATUALIZA ITEM NA ABA PRINCIPAL ─────────────────────────────────────────────
@@ -171,6 +213,9 @@ def carregar_historico(_gc, spreadsheet_id: str) -> pd.DataFrame:
     sh = _gc.open_by_key(spreadsheet_id)
     try:
         ws = sh.worksheet(ABA_HISTORICO)
-        return pd.DataFrame(ws.get_all_records())
+        df_hist = pd.DataFrame(ws.get_all_records())
+        if not df_hist.empty:
+            df_hist["_row"] = range(2, len(df_hist) + 2)
+        return df_hist
     except Exception:
         return pd.DataFrame()
