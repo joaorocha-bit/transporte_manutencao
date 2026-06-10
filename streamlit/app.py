@@ -416,7 +416,7 @@ elif pagina == "✏️ Lançar Ocorrência":
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PÁGINA: HISTÓRICO
+# PÁGINA: HISTÓRICO (MODIFICADA)
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "📜 Histórico":
     st.markdown("# Histórico de Ocorrências")
@@ -424,51 +424,130 @@ elif pagina == "📜 Histórico":
     if df_historico.empty:
         st.info("Nenhum histórico registrado ainda. Lance ocorrências para começar a construir o histórico.")
     else:
+        # Garante que colunas de controle existam no DataFrame para evitar quebras
+        if "status_ocorrencia" not in df_historico.columns:
+            df_historico["status_ocorrencia"] = "Aberta"
+        if "data_finalizacao" not in df_historico.columns:
+            df_historico["data_finalizacao"] = ""
+
         col1, col2, col3 = st.columns(3)
         with col1:
             filtro_tipo_oc = st.selectbox("Filtrar por tipo", ["Todos"] + sorted(df_historico["tipo_ocorrencia"].unique().tolist()))
         with col2:
             filtro_item = st.text_input("Filtrar por item / patrimônio")
         with col3:
-            dias_filtro = st.selectbox("Período", ["Todos","Últimos 30 dias","Últimos 90 dias","Este ano"])
+            filtro_status = st.selectbox("Filtrar por Status", ["Todos", "Aberta", "Finalizada"])
 
         dh = df_historico.copy()
-        dh["data_ocorrencia"] = pd.to_datetime(dh["data_ocorrencia"], errors="coerce")
+        dh["data_ocorrencia_dt"] = pd.to_datetime(dh["data_ocorrencia"], errors="coerce")
 
+        # Aplicação dos filtros
         if filtro_tipo_oc != "Todos":
             dh = dh[dh["tipo_ocorrencia"] == filtro_tipo_oc]
         if filtro_item:
-            mask = dh.apply(lambda r: filtro_item.lower() in str(r["item_nome"]).lower()
-                             or filtro_item.lower() in str(r["item_patrimonio"]).lower(), axis=1)
+            mask = dh.apply(lambda r: filtro_item.lower() in str(r["item_nome"]).lower() or filtro_item.lower() in str(r["item_patrimonio"]).lower(), axis=1)
             dh = dh[mask]
-        hoje = pd.Timestamp.today()
-        if dias_filtro == "Últimos 30 dias":
-            dh = dh[dh["data_ocorrencia"] >= hoje - pd.Timedelta(days=30)]
-        elif dias_filtro == "Últimos 90 dias":
-            dh = dh[dh["data_ocorrencia"] >= hoje - pd.Timedelta(days=90)]
-        elif dias_filtro == "Este ano":
-            dh = dh[dh["data_ocorrencia"].dt.year == hoje.year]
+        if filtro_status != "Todos":
+            dh = dh[dh["status_ocorrencia"].str.lower() == filtro_status.lower()]
 
-        dh = dh.sort_values("data_ocorrencia", ascending=False)
-        dh["data_ocorrencia"] = dh["data_ocorrencia"].dt.strftime("%d/%m/%Y")
-        dh["timestamp"] = pd.to_datetime(dh["timestamp"], errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
+        dh = dh.sort_values("data_ocorrencia_dt", ascending=False)
+        
+        # Formatação visual para exibição
+        dh_show = dh.copy()
+        dh_show["data_ocorrencia"] = pd.to_datetime(dh_show["data_ocorrencia"], errors="coerce").dt.strftime("%d/%m/%Y")
+        if "timestamp" in dh_show.columns:
+            dh_show["timestamp"] = pd.to_datetime(dh_show["timestamp"], errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
 
-        st.dataframe(dh.rename(columns={
-            "timestamp":"Registrado em","item_nome":"Item","item_patrimonio":"Patrimônio",
-            "tipo_ocorrencia":"Tipo","data_ocorrencia":"Data","responsavel":"Responsável",
-            "observacoes":"Observações","novo_local":"Novo Local","necessidade":"Necessidade",
+        # Exibição da tabela de histórico
+        st.dataframe(dh_show.rename(columns={
+            "timestamp": "Registrado em", "item_nome": "Item", "item_patrimonio": "Patrimônio",
+            "tipo_ocorrencia": "Tipo", "data_ocorrencia": "Data", "responsavel": "Responsável",
+            "observacoes": "Observações", "novo_local": "Novo Local", "necessidade": "Necessidade",
+            "status_ocorrencia": "Status", "data_finalizacao": "Data Finalização"
         }), use_container_width=True, hide_index=True)
-        st.caption(f"{len(dh)} registros")
+        st.caption(f"{len(dh)} registros encontrados")
 
-        # mini gráfico de evolução
+        # ── SEÇÃO PARA FINALIZAR OCORRÊNCIA ──────────────────────────────────
+        st.markdown('<p class="section-title">✔️ Finalizar Ocorrência em Aberto</p>', unsafe_allow_html=True)
+        
+        # Filtra apenas as ocorrências que estão abertas para seleção
+        ocorrencias_abertas = dh[dh["status_ocorrencia"].str.lower() != "finalizada"]
+        
+        if ocorrencias_abertas.empty:
+            st.success("Todas as ocorrências filtradas já estão finalizadas! 🎉")
+        else:
+            # Monta uma lista de opções legível para o usuário escolher
+            opcoes_finalizar = (
+                ocorrencias_abertas["item_nome"] + " | " + 
+                ocorrencias_abertas["tipo_ocorrencia"] + " | Pat:" + 
+                ocorrencias_abertas["item_patrimonio"].fillna("—") + " | Linha: " + 
+                ocorrencias_abertas["_row"].astype(str)
+            )
+            
+            oc_selecionada = st.selectbox("Selecione a ocorrência que deseja encerrar:", opcoes_finalizar)
+            
+            # Recupera o índice real do item selecionado
+            idx_oc = opcoes_finalizar[opcoes_finalizar == oc_selecionada].index[0]
+            dados_oc = ocorrencias_abertas.loc[idx_oc]
+            
+            col_btn1, col_btn2 = st.columns([1, 3])
+            with col_btn1:
+                data_fechamento = st.date_input("Data de Finalização", value=date.today())
+            
+            if st.button("🔒 Finalizar e Atualizar Consolidado", type="primary"):
+                try:
+                    hoje_iso = data_fechamento.isoformat()
+                    
+                    # 1. Atualiza a aba de Histórico
+                    from utils import atualizar_historico
+                    updates_hist = {
+                        "status_ocorrencia": "Finalizada",
+                        "data_finalizacao": hoje_iso
+                    }
+                    atualizar_historico(gc, spreadsheet_id, int(dados_oc["_row"]), updates_hist)
+                    
+                    # 2. Atualiza a aba principal (Consolidado) baseando-se no patrimônio do item
+                    from utils import atualizar_item
+                    
+                    # Encontra a linha correspondente do equipamento no DataFrame principal (`df`)
+                    equipamento_match = df[df["patrimonio_novo"] == dados_oc["item_patrimonio"]]
+                    
+                    if not equipamento_match.empty:
+                        row_consolidado = equipamento_match.iloc[0]["_row"]
+                        tipo_oc = dados_oc["tipo_ocorrencia"]
+                        
+                        updates_consolidado = {}
+                        # Altera a respectiva data dependendo do que foi finalizado
+                        if tipo_oc == "Higienização Terminal":
+                            updates_consolidado["data_higienizacao"] = hoje_iso
+                        elif tipo_oc in ["Manutenção Preventiva", "Manutenção Corretiva"]:
+                            updates_consolidado["data_manutencao"] = hoje_iso
+                        elif tipo_oc == "Verificação":
+                            updates_consolidado["data_verificacao"] = hoje_iso
+                        
+                        # Se houver campo atualizável mapeado, envia para o Sheets
+                        if updates_consolidado:
+                            atualizar_item(gc, spreadsheet_id, row_consolidado, updates_consolidado)
+                            st.success("✅ Ocorrência finalizada e aba Consolidado atualizada com sucesso!")
+                        else:
+                            st.info("ℹ️ Ocorrência finalizada no histórico. (Nenhum campo de data correspondente para o Consolidado).")
+                    else:
+                        st.warning("⚠️ Ocorrência atualizada no histórico, mas o equipamento correspondente não foi achado no Consolidado pelo Patrimônio.")
+                    
+                    # Limpa o cache e recarrega a página para atualizar os dados visuais
+                    st.cache_data.clear()
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Erro ao finalizar ocorrência: {e}")
+
+        # ── MINI GRÁFICO DE EVOLUÇÃO ──────────────────────────────────────────
         if not dh.empty:
             st.markdown('<p class="section-title">Ocorrências por mês</p>', unsafe_allow_html=True)
             dh2 = df_historico.copy()
             dh2["data_ocorrencia"] = pd.to_datetime(dh2["data_ocorrencia"], errors="coerce")
             dh2["mes"] = dh2["data_ocorrencia"].dt.to_period("M").astype(str)
-            contagem = dh2.groupby(["mes","tipo_ocorrencia"]).size().reset_index(name="n")
-            fig_ev = px.bar(contagem, x="mes", y="n", color="tipo_ocorrencia",
-                            color_discrete_sequence=px.colors.qualitative.Set2)
-            fig_ev.update_layout(xaxis_title="Mês", yaxis_title="Ocorrências",
-                                  legend_title="Tipo", height=300)
+            contagem = dh2.groupby(["mes", "tipo_ocorrencia"]).size().reset_index(name="n")
+            fig_ev = px.bar(contagem, x="mes", y="n", color="tipo_ocorrencia", color_discrete_sequence=px.colors.qualitative.Set2)
+            fig_ev.update_layout(xaxis_title="Mês", yaxis_title="Ocorrências", legend_title="Tipo", height=300)
             st.plotly_chart(fig_ev, use_container_width=True)
