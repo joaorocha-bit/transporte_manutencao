@@ -162,6 +162,24 @@ if pagina == "📊 Dashboard":
     man_alerta = (df_view["status_man"] == "alerta").sum()
     man_critico = (df_view["status_man"] == "critico").sum()
 
+    # ── CÁLCULO DOS CONTADORES DE OCORRÊNCIAS ──
+    # Filtra o histórico dinamicamente baseado no equipamento da View atual
+    if tipo_filtro != "Todos":
+        df_hist_view = df_historico[df_historico["item_patrimonio"].isin(df_view["patrimonio_novo"])].copy()
+    else:
+        df_hist_view = df_historico.copy()
+
+    # Garante que a coluna exista para não gerar erros no primeiro carregamento
+    if "status_ocorrencia" not in df_hist_view.columns:
+        df_hist_view["status_ocorrencia"] = "Aberta"
+
+    # Conta abertas (tudo que não for "finalizada" ou que estiver vazio) e finalizadas
+    oc_abertas = (df_hist_view["status_ocorrencia"].str.lower() != "finalizada").sum()
+    oc_finalizadas = (df_hist_view["status_ocorrencia"].str.lower() == "finalizada").sum()
+
+
+    # ── RENDERIZAÇÃO DOS CARDS ──
+    # Linha 1: Equipamentos e Pendências Gerais
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""<div class="metric-card">
@@ -181,6 +199,19 @@ if pagina == "📊 Dashboard":
         st.markdown(f"""<div class="metric-card {cor_man}">
             <div class="metric-value">{man_critico + man_alerta}</div>
             <div class="metric-label">Manutenção pendente</div></div>""", unsafe_allow_html=True)
+
+    # Linha 2: Status das Ocorrências (Novos Contadores)
+    col_oc1, col_oc2 = st.columns(2)
+    with col_oc1:
+        # Fica vermelho se houver alguma pendência aberta, senão fica verde
+        cor_oc_aberta = "vermelho" if oc_abertas > 0 else "verde"
+        st.markdown(f"""<div class="metric-card {cor_oc_aberta}">
+            <div class="metric-value">{oc_abertas}</div>
+            <div class="metric-label">📋 Ocorrências em Aberto</div></div>""", unsafe_allow_html=True)
+    with col_oc2:
+        st.markdown(f"""<div class="metric-card verde">
+            <div class="metric-value">{oc_finalizadas}</div>
+            <div class="metric-label">✅ Ocorrências Finalizadas</div></div>""", unsafe_allow_html=True)
 
     st.markdown("---")
 
